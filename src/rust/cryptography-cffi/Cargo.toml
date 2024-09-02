@@ -8,7 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 pyo3 = { version = "0.22.2", features = ["abi3"] }
-openssl-sys = "0.9.103"
+openssl-sys = { git = "https://github.com/sfackler/rust-openssl" }
 
 [build-dependencies]
 cc = "1.1.15"
