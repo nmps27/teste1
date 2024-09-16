@@ -124,7 +124,7 @@ fn pkcs7_encrypt<'p>(
     // Prepare the cipher
     // SAFETY: No pre-conditions
     let cipher = unsafe {
-        let ptr = openssl_sys::EVP_get_cipherbyname(cipher.as_bytes().as_ptr() as *const i8);
+        let ptr = openssl_sys::EVP_get_cipherbyname(cipher.as_bytes().as_ptr() as *const _);
         openssl::symm::Cipher::from_ptr(ptr as *mut _)
     };
 
