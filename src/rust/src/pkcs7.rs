@@ -662,7 +662,7 @@ mod tests {
     use std::borrow::Cow;
     use std::ops::Deref;
 
-    use super::smime_canonicalize;
+    use super::{smime_canonicalize, smime_decanonicalize};
 
     #[test]
     fn test_smime_canonicalize() {
@@ -720,6 +720,34 @@ mod tests {
                 matches!(result_without_header, Cow::Borrowed(_)),
                 expected_is_borrowed
             );
+        }
+    }
+
+    #[test]
+    fn test_smime_decanonicalize() {
+        for (input, text_mode, expected_output) in [
+            // Values with text_mode=false
+            (b"" as &[u8], false, b"" as &[u8]),
+            (b"abc\r\n", false, b"abc\n"),
+            (b"\r\nabc\n", false, b"\nabc\n"),
+            (b"abc\r\ndef\r\n", false, b"abc\ndef\n"),
+            (b"abc\r\ndef\nabc", false, b"abc\ndef\nabc"),
+            // Values with text_mode=true
+            (b"Content-Type: text/plain\r\n\r\n", true, b""),
+            (b"Content-Type: text/plain\r\n\r\nabc", true, b"abc"),
+            (
+                b"Content-Type: text/plain\r\n\r\nabc\r\ndef\r\n",
+                true,
+                b"abc\ndef\n",
+            ),
+            (
+                b"Content-Type: text/plain\r\n\r\nabc\r\ndef\nabc",
+                true,
+                b"abc\ndef\nabc",
+            ),
+        ] {
+            let result = smime_decanonicalize(input, text_mode);
+            assert_eq!(result.deref(), expected_output);
         }
     }
 }
