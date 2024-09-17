@@ -733,13 +733,9 @@ mod tests {
             (b"abc\r\ndef\r\n", false, b"abc\ndef\n"),
             (b"abc\r\ndef\nabc", false, b"abc\ndef\nabc"),
             // Values with text_mode=true
+            (b"abc\r\n", true, b"abc\n"),
             (b"Content-Type: text/plain\r\n\r\n", true, b""),
             (b"Content-Type: text/plain\r\n\r\nabc", true, b"abc"),
-            (
-                b"Content-Type: text/plain\r\n\r\nabc\r\ndef\r\n",
-                true,
-                b"abc\ndef\n",
-            ),
             (
                 b"Content-Type: text/plain\r\n\r\nabc\r\ndef\nabc",
                 true,
