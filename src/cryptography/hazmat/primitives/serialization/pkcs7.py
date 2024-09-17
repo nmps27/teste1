@@ -263,114 +263,85 @@ class PKCS7EnvelopeBuilder:
         return rust_pkcs7.encrypt_and_serialize(self, encoding, options)
 
 
-class PKCS7EnvelopeDecryptor:
-    def __init__(
-        self,
-        *,
-        _data: bytes | None = None,
-        _recipient: x509.Certificate | None = None,
-        _private_key: rsa.RSAPrivateKey | None = None,
+def pkcs7_decrypt_der(
+    data: bytes,
+    certificate: x509.Certificate,
+    private_key: rsa.RSAPrivateKey,
+    options: typing.Iterable[PKCS7Options],
+) -> bytes:
+    return _pkcs7_decrypt(
+        data, certificate, private_key, options, serialization.Encoding.DER
+    )
+
+
+def pkcs7_decrypt_pem(
+    data: bytes,
+    certificate: x509.Certificate,
+    private_key: rsa.RSAPrivateKey,
+    options: typing.Iterable[PKCS7Options],
+) -> bytes:
+    return _pkcs7_decrypt(
+        data, certificate, private_key, options, serialization.Encoding.PEM
+    )
+
+
+def pkcs7_decrypt_smime(
+    data: bytes,
+    certificate: x509.Certificate,
+    private_key: rsa.RSAPrivateKey,
+    options: typing.Iterable[PKCS7Options],
+) -> bytes:
+    data = _smime_enveloped_decode(data)
+    return _pkcs7_decrypt(
+        data, certificate, private_key, options, serialization.Encoding.DER
+    )
+
+
+def _pkcs7_decrypt(
+    data: bytes,
+    certificate: x509.Certificate,
+    private_key: rsa.RSAPrivateKey,
+    options: typing.Iterable[PKCS7Options],
+    encoding: serialization.Encoding,
+) -> bytes:
+    from cryptography.hazmat.backends.openssl.backend import (
+        backend as ossl,
+    )
+
+    if not ossl.rsa_encryption_supported(padding=padding.PKCS1v15()):
+        raise UnsupportedAlgorithm(
+            "RSA with PKCS1 v1.5 padding is not supported by this version"
+            " of OpenSSL.",
+            _Reasons.UNSUPPORTED_PADDING,
+        )
+
+    options = list(options)
+    if not all(isinstance(x, PKCS7Options) for x in options):
+        raise ValueError("options must be from the PKCS7Options enum")
+    if any(
+        opt not in [PKCS7Options.Text, PKCS7Options.Binary] for opt in options
     ):
-        from cryptography.hazmat.backends.openssl.backend import (
-            backend as ossl,
+        raise ValueError(
+            "Only the following options are supported for encryption: "
+            "Text, Binary"
         )
+    elif PKCS7Options.Text in options and PKCS7Options.Binary in options:
+        # OpenSSL accepts both options at the same time, but ignores Text.
+        # We fail defensively to avoid unexpected outputs.
+        raise ValueError("Cannot use Binary and Text options at the same time")
 
-        if not ossl.rsa_encryption_supported(padding=padding.PKCS1v15()):
-            raise UnsupportedAlgorithm(
-                "RSA with PKCS1 v1.5 padding is not supported by this version"
-                " of OpenSSL.",
-                _Reasons.UNSUPPORTED_PADDING,
-            )
-        self._data = _data
-        self._recipient = _recipient
-        self._private_key = _private_key
+    if not isinstance(certificate, x509.Certificate):
+        raise TypeError("certificate must be a x509.Certificate")
 
-    def set_data(self, data: bytes) -> PKCS7EnvelopeDecryptor:
-        _check_byteslike("data", data)
-        if self._data is not None:
-            raise ValueError("data may only be set once")
+    if not isinstance(certificate.public_key(), rsa.RSAPublicKey):
+        raise TypeError("Only RSA keys are supported at this time.")
 
-        return PKCS7EnvelopeDecryptor(
-            _data=data,
-            _recipient=self._recipient,
-            _private_key=self._private_key,
-        )
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise TypeError("Only RSA private keys are supported at this time.")
 
-    def set_recipient(
-        self, certificate: x509.Certificate
-    ) -> PKCS7EnvelopeDecryptor:
-        if self._recipient is not None:
-            raise ValueError("recipient may only be set once")
-
-        if not isinstance(certificate, x509.Certificate):
-            raise TypeError("certificate must be a x509.Certificate")
-
-        if not isinstance(certificate.public_key(), rsa.RSAPublicKey):
-            raise TypeError("Only RSA public keys are supported at this time.")
-
-        return PKCS7EnvelopeDecryptor(
-            _data=self._data,
-            _recipient=certificate,
-            _private_key=self._private_key,
-        )
-
-    def set_private_key(
-        self, private_key: rsa.RSAPrivateKey
-    ) -> PKCS7EnvelopeDecryptor:
-        if self._private_key is not None:
-            raise ValueError("private key may only be set once")
-
-        if not isinstance(private_key, rsa.RSAPrivateKey):
-            raise TypeError(
-                "Only RSA private keys are supported at this time."
-            )
-
-        return PKCS7EnvelopeDecryptor(
-            _data=self._data,
-            _recipient=self._recipient,
-            _private_key=private_key,
-        )
-
-    def decrypt(
-        self,
-        encoding: serialization.Encoding,
-        options: typing.Iterable[PKCS7Options],
-    ) -> bytes:
-        if self._data is None:
-            raise ValueError("You must add data to decrypt")
-        if self._recipient is None:
-            raise ValueError("You must add a recipient to decrypt")
-        if self._private_key is None:
-            raise ValueError("You must add a private key to decrypt")
-        options = list(options)
-        if not all(isinstance(x, PKCS7Options) for x in options):
-            raise ValueError("options must be from the PKCS7Options enum")
-        if encoding not in (
-            serialization.Encoding.PEM,
-            serialization.Encoding.DER,
-            serialization.Encoding.SMIME,
-        ):
-            raise ValueError(
-                "Must be PEM, DER, or SMIME from the Encoding enum"
-            )
-
-        # Only allow options that make sense for encryption
-        if any(
-            opt not in [PKCS7Options.Text, PKCS7Options.Binary]
-            for opt in options
-        ):
-            raise ValueError(
-                "Only the following options are supported for encryption: "
-                "Text, Binary"
-            )
-        elif PKCS7Options.Text in options and PKCS7Options.Binary in options:
-            # OpenSSL accepts both options at the same time, but ignores Text.
-            # We fail defensively to avoid unexpected outputs.
-            raise ValueError(
-                "Cannot use Binary and Text options at the same time"
-            )
-
-        return rust_pkcs7.deserialize_and_decrypt(self, encoding, options)
+    return rust_pkcs7.deserialize_and_decrypt(
+        data, certificate, private_key, encoding, options
+    )
 
 
 def _smime_signed_encode(

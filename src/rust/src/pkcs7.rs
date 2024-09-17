@@ -17,7 +17,7 @@ use pyo3::types::{PyAnyMethods, PyBytesMethods, PyListMethods};
 #[cfg(not(CRYPTOGRAPHY_IS_BORINGSSL))]
 use pyo3::IntoPy;
 
-use crate::asn1::{decode_der_data, encode_der_data};
+use crate::asn1::encode_der_data;
 use crate::buf::CffiBuf;
 use crate::error::{CryptographyError, CryptographyResult};
 use crate::pkcs12::{symmetric_decrypt, symmetric_encrypt};
@@ -169,40 +169,28 @@ fn encrypt_and_serialize<'p>(
 #[pyo3::pyfunction]
 fn deserialize_and_decrypt<'p>(
     py: pyo3::Python<'p>,
-    decryptor: &pyo3::Bound<'p, pyo3::PyAny>,
+    data: CffiBuf<'p>,
+    certificate: pyo3::Bound<'p, x509::certificate::Certificate>,
+    private_key: pyo3::Bound<'p, backend::rsa::RsaPrivateKey>,
     encoding: &pyo3::Bound<'p, pyo3::PyAny>,
     options: &pyo3::Bound<'p, pyo3::types::PyList>,
 ) -> CryptographyResult<pyo3::Bound<'p, pyo3::types::PyBytes>> {
-    // Extract the data on the right format
-    let raw_data: CffiBuf<'p> = decryptor.getattr(pyo3::intern!(py, "_data"))?.extract()?;
-    let extracted_data = if encoding.is(&types::ENCODING_SMIME.get(py)?) {
-        types::SMIME_ENVELOPED_DECODE
-            .get(py)?
-            .call1((raw_data.into_pyobj(),))?
-            .extract()?
+    // Extract the data on the right format (PEM or DER, SMIME handled by Python)
+    let extracted_data = if encoding.is(&types::ENCODING_DER.get(py)?) {
+        data.as_bytes().to_vec()
     } else {
-        // Handles the DER, PEM, and error cases
-        decode_der_data(
-            py,
-            "PKCS7".to_string(),
-            raw_data.as_bytes().to_vec(),
-            encoding,
-        )
-        .ok()
+        let pem_str = std::str::from_utf8(data.as_bytes())
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("Invalid PEM data"))?;
+        let pem = pem::parse(pem_str)
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("Failed to parse PEM data"))?;
+        if pem.tag() != "PKCS7" {
+            return Err(pyo3::exceptions::PyValueError::new_err("PEM tag mismatch").into());
+        }
+        pem.contents().to_vec()
     };
-    let extracted_data = extracted_data.unwrap();
-
-    // Extract the decryptor parameters
-    let recipient: pyo3::Bound<'p, x509::certificate::Certificate> = decryptor
-        .getattr(pyo3::intern!(py, "_recipient"))?
-        .extract()?;
-    let private_key: pyo3::Bound<'p, backend::rsa::RsaPrivateKey> = decryptor
-        .getattr(pyo3::intern!(py, "_private_key"))?
-        .extract()?;
 
     // Deserialize the content info
-    let content_info =
-        asn1::parse_single::<pkcs7::ContentInfo<'_>>(extracted_data.as_bytes()).unwrap();
+    let content_info = asn1::parse_single::<pkcs7::ContentInfo<'_>>(&extracted_data).unwrap();
     let plain_content = match content_info.content {
         pkcs7::Content::EnvelopedData(data) => {
             // Extract enveloped data
@@ -210,7 +198,7 @@ fn deserialize_and_decrypt<'p>(
 
             // Get recipients, and the one matching with the given certificate (if any)
             let mut recipient_infos = enveloped_data.recipient_infos.unwrap_read().clone();
-            let recipient_serial_number = recipient.get().raw.borrow_dependent().tbs_cert.serial;
+            let recipient_serial_number = certificate.get().raw.borrow_dependent().tbs_cert.serial;
             let found_recipient_info = recipient_infos.find(|info| {
                 info.issuer_and_serial_number.serial_number.as_bytes()
                     == recipient_serial_number.as_bytes()
