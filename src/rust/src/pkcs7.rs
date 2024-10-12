@@ -197,8 +197,7 @@ fn deserialize_and_decrypt<'p>(
             let mut recipient_infos = enveloped_data.recipient_infos.unwrap_read().clone();
             let recipient_serial_number = certificate.get().raw.borrow_dependent().tbs_cert.serial;
             let found_recipient_info = recipient_infos.find(|info| {
-                info.issuer_and_serial_number.serial_number.as_bytes()
-                    == recipient_serial_number.as_bytes()
+                info.issuer_and_serial_number.serial_number == recipient_serial_number
             });
 
             // Raise error when no recipient is found

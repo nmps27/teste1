@@ -411,9 +411,10 @@ def _smime_enveloped_encode(data: bytes) -> bytes:
 
 def _smime_enveloped_decode(data: bytes) -> bytes:
     m = email.message_from_bytes(data)
-    # Content type can be application/x-pkcs7-mime or application/pkcs7-mime
-    # Could also be using the filename parameter, or no checks at all.
-    if "pkcs7-mime" not in m.get_content_type():
+    if m.get_content_type() not in {
+        "application/x-pkcs7-mime",
+        "application/pkcs7-mime",
+    }:
         raise ValueError("Not an S/MIME enveloped message")
     return bytes(m.get_payload(decode=True))
 
