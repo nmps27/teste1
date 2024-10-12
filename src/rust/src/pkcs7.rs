@@ -183,7 +183,7 @@ fn deserialize_and_decrypt<'p>(
             .map_err(|_| pyo3::exceptions::PyValueError::new_err("Invalid PEM data"))?;
         let pem = pem::parse(pem_str)
             .map_err(|_| pyo3::exceptions::PyValueError::new_err("Failed to parse PEM data"))?;
-        pem.contents().to_vec()
+        pem.into_contents()
     };
 
     // Deserialize the content info
