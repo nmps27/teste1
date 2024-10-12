@@ -167,27 +167,28 @@ fn encrypt_and_serialize<'p>(
 }
 
 #[pyo3::pyfunction]
+fn pem_to_der<'p>(
+    py: pyo3::Python<'p>,
+    data: CffiBuf<'p>,
+) -> CryptographyResult<pyo3::Bound<'p, pyo3::types::PyBytes>> {
+    let pem_str = std::str::from_utf8(data.as_bytes())
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("Invalid PEM data"))?;
+    let pem = pem::parse(pem_str)
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("Failed to parse PEM data"))?;
+
+    Ok(pyo3::types::PyBytes::new_bound(py, &pem.into_contents()))
+}
+
+#[pyo3::pyfunction]
 fn deserialize_and_decrypt<'p>(
     py: pyo3::Python<'p>,
     data: CffiBuf<'p>,
     certificate: pyo3::Bound<'p, x509::certificate::Certificate>,
     private_key: pyo3::Bound<'p, backend::rsa::RsaPrivateKey>,
-    encoding: &pyo3::Bound<'p, pyo3::PyAny>,
     options: &pyo3::Bound<'p, pyo3::types::PyList>,
 ) -> CryptographyResult<pyo3::Bound<'p, pyo3::types::PyBytes>> {
-    // Extract the data on the right format (PEM or DER, SMIME handled by Python)
-    let extracted_data = if encoding.is(&types::ENCODING_DER.get(py)?) {
-        data.as_bytes().to_vec()
-    } else {
-        let pem_str = std::str::from_utf8(data.as_bytes())
-            .map_err(|_| pyo3::exceptions::PyValueError::new_err("Invalid PEM data"))?;
-        let pem = pem::parse(pem_str)
-            .map_err(|_| pyo3::exceptions::PyValueError::new_err("Failed to parse PEM data"))?;
-        pem.into_contents()
-    };
-
     // Deserialize the content info
-    let content_info = asn1::parse_single::<pkcs7::ContentInfo<'_>>(&extracted_data).unwrap();
+    let content_info = asn1::parse_single::<pkcs7::ContentInfo<'_>>(data.as_bytes()).unwrap();
     let plain_content = match content_info.content {
         pkcs7::Content::EnvelopedData(data) => {
             // Extract enveloped data
@@ -652,7 +653,7 @@ pub(crate) mod pkcs7_mod {
     #[pymodule_export]
     use super::{
         deserialize_and_decrypt, encrypt_and_serialize, load_der_pkcs7_certificates,
-        load_pem_pkcs7_certificates, serialize_certificates, sign_and_serialize,
+        load_pem_pkcs7_certificates, pem_to_der, serialize_certificates, sign_and_serialize,
     };
 }
 

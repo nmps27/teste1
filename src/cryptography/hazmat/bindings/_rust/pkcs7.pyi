@@ -23,11 +23,11 @@ def sign_and_serialize(
     encoding: serialization.Encoding,
     options: typing.Iterable[pkcs7.PKCS7Options],
 ) -> bytes: ...
+def pem_to_der(data: bytes) -> bytes: ...
 def deserialize_and_decrypt(
     data: bytes,
     certificate: x509.Certificate,
     private_key: rsa.RSAPrivateKey,
-    encoding: serialization.Encoding,
     options: typing.Iterable[pkcs7.PKCS7Options],
 ) -> bytes: ...
 def load_pem_pkcs7_certificates(
